@@ -20,6 +20,7 @@ no-round-trip interactivity - only the "AI chat" solving is server-side here.
 import base64
 import json
 import os
+import re
 
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -53,7 +54,7 @@ TEXT_SOLVE_SYSTEM_PROMPT = """You are the AI tutor inside a math-calculator app'
 Decide first whether the user's message is actually a math question.
 
 - If it is NOT a math question (small talk, general knowledge, coding, personal advice, or any non-mathematical topic), respond with EXACTLY this JSON and nothing else: {"decline": true}
-- If it IS a math question, solve it like a patient tutor, showing your work, even if it's informally worded, has a typo, or doesn't match a standard template. Make a reasonable interpretation rather than refusing, and briefly note any assumption you made as one of the steps.
+- If it IS a math question, solve it like a patient tutor, showing your work, even if it's informally worded, has a typo, or doesn't match a standard template. Make a reasonable interpretation rather than refusing, and briefly note any assumption you made as one of the steps. This includes number-pattern / substitution riddles (e.g. "1+1=trump then 3+1=?") - treat these as in-scope: figure out the rule from the given example(s) and apply it.
 
 When it is a math question, respond with ONLY a JSON object, no markdown fences, no commentary outside the JSON, in exactly this shape:
 {"steps": ["step 1 explanation", "step 2 explanation", ...], "final": "the final answer"}
@@ -66,9 +67,17 @@ Formatting rules:
 
 
 def _clean_json_block(text):
-    """Strip ```json fences (if any) and parse the JSON object out of a model reply."""
+    """Pull the JSON object out of a model reply, tolerating ```json fences
+    or stray prose the model adds despite being told not to (riddle-style
+    prompts especially tempt it to "explain" outside the JSON)."""
     cleaned = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        match = re.search(r"\{.*\}", cleaned, re.S)
+        if match:
+            return json.loads(match.group(0))
+        raise exc
 
 
 def _solve_image_with_gemini(api_key, image_b64, media_type, user_text):
@@ -200,8 +209,8 @@ def api_solve():
                 return jsonify(_solve_text_with_gemini(gemini_key, text))
             if anthropic_key:
                 return jsonify(_solve_text_with_anthropic(anthropic_key, text))
-        except Exception:
-            pass  # AI fallback failed - fall through to the regex result below
+        except Exception as exc:
+            app.logger.warning("AI text-solve fallback failed: %s", exc)
 
     return jsonify(result)
 
