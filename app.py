@@ -223,7 +223,7 @@ def api_solve():
         return jsonify(_solve_text_with_anthropic(anthropic_key, text))
     except Exception as exc:
         app.logger.warning("AI text-solve failed: %s", exc)
-        return jsonify({"error": f"AI solve failed: {exc}"} if app.debug else {"error": True})
+        return jsonify({"error": f"AI solve failed: {exc}"})
 
 
 @app.route("/api/calc", methods=["POST"])
