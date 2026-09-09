@@ -69,6 +69,8 @@ export ANTHROPIC_MODEL="claude-sonnet-5"
 |--------|-------------------|---------------------------------------------------------|---------|
 | POST   | `/api/solve`       | `{"text": "Solve x^2 - 5x + 6 = 0"}`                    | `{"steps": [...], "final": "...", "finalLatex": "..."}` (or `{"decline": true}` / `{"error": true}`) |
 | POST   | `/api/solve-image` | `{"image_base64": "...", "media_type": "image/png", "text": "optional note"}` | same shape as above, via Claude |
+
+`/api/solve` tries the fast, free, hand-written regex engine (`math_engine.py`) first. Only when that engine can't confidently parse or solve the input does it fall back to asking Claude directly, as a chatbot rather than just a numeric evaluator — so word problems, geometry questions, or oddly-phrased algebra that don't match a hardcoded pattern still get solved with real step-by-step working instead of a generic "couldn't parse that" message. The AI fallback is given a fixed system prompt (`TEXT_SOLVE_SYSTEM_PROMPT` in `app.py`) that scopes it to math only, acting as its knowledge base: any non-math message (chit-chat, coding help, unrelated topics) gets `{"decline": true}` instead of an answer. This fallback only runs when `ANTHROPIC_API_KEY` is set; without it, `/api/solve` behaves exactly as before (regex engine only).
 | POST   | `/api/calc`        | `{"expr": "2*(3+4)^2", "angleMode": "DEG"}`             | `{"result": 98}` (server-side expression check; the calculator UI evaluates client-side already) |
 
 ## Notes

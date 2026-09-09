@@ -44,6 +44,26 @@ Rules:
 - "final" should be just the final answer (can include a short label), also using $ ... $ for math.
 - If the image does not contain a legible math problem, respond with {{"steps": [], "final": "", "error": "brief reason"}} instead."""
 
+# System-style instruction used to turn the fast regex engine's "I couldn't
+# parse/solve that" cases into a real chatbot answer, while keeping the bot
+# strictly scoped to math. This is the "knowledge base" the model consults
+# to decide whether something is in-scope before it ever tries to solve it.
+TEXT_SOLVE_SYSTEM_PROMPT = """You are the AI tutor inside a math-calculator app's chat. Your ONLY job is to help with mathematics: arithmetic, algebra, equations and inequalities, geometry, trigonometry, calculus (limits, derivatives, integrals), statistics and probability, linear algebra, sequences/series, unit conversions, and word problems that reduce to a math calculation.
+
+Decide first whether the user's message is actually a math question.
+
+- If it is NOT a math question (small talk, general knowledge, coding, personal advice, or any non-mathematical topic), respond with EXACTLY this JSON and nothing else: {"decline": true}
+- If it IS a math question, solve it like a patient tutor, showing your work, even if it's informally worded, has a typo, or doesn't match a standard template. Make a reasonable interpretation rather than refusing, and briefly note any assumption you made as one of the steps.
+
+When it is a math question, respond with ONLY a JSON object, no markdown fences, no commentary outside the JSON, in exactly this shape:
+{"steps": ["step 1 explanation", "step 2 explanation", ...], "final": "the final answer"}
+
+Formatting rules:
+- Wrap every math expression in single dollar signs, e.g. $x^2+3x$, so it renders with KaTeX.
+- Keep each step to one short, clear sentence.
+- "final" should be just the final answer (a short label is fine), also wrapped in $ ... $.
+- Never reply with prose outside the JSON object, and never leave "steps" or "final" empty for an in-scope math question - always give your best attempt."""
+
 
 def _clean_json_block(text):
     """Strip ```json fences (if any) and parse the JSON object out of a model reply."""
@@ -109,6 +129,47 @@ def _solve_image_with_anthropic(api_key, image_b64, media_type, user_text):
     return _clean_json_block(text_block)
 
 
+def _solve_text_with_gemini(api_key, user_text):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    payload = {"contents": [{"parts": [{"text": TEXT_SOLVE_SYSTEM_PROMPT + "\n\nStudent: " + user_text}]}]}
+    resp = requests.post(url, params={"key": api_key}, json=payload, timeout=45)
+    resp.raise_for_status()
+    candidates = resp.json().get("candidates") or []
+    if not candidates:
+        raise ValueError("Gemini returned no candidates.")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text_block = "".join(p.get("text", "") for p in parts).strip()
+    return _normalize_ai_solve(_clean_json_block(text_block))
+
+
+def _solve_text_with_anthropic(api_key, user_text):
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=1000,
+        system=TEXT_SOLVE_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_text}],
+    )
+    text_block = "".join(getattr(block, "text", "") for block in message.content).strip()
+    return _normalize_ai_solve(_clean_json_block(text_block))
+
+
+def _normalize_ai_solve(parsed):
+    # Normalize into the same shape the frontend already expects.
+    if parsed.get("decline"):
+        return {"decline": True}
+    steps = parsed.get("steps") or []
+    final = parsed.get("final") or ""
+    if not steps or not final:
+        return {"error": True}
+    result = {"steps": steps, "final": final}
+    if "finalLatex" in parsed:
+        result["finalLatex"] = parsed["finalLatex"]
+    return result
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -118,10 +179,30 @@ def index():
 def api_solve():
     data = request.get_json(force=True, silent=True) or {}
     text = data.get("text", "")
+
+    # Fast path: the hand-written regex/parser engine handles the common,
+    # well-formed patterns instantly and with no API cost.
     try:
         result = solve_math(text)
     except Exception:
         result = {"error": True}
+
+    # Only when the fast engine can't confidently parse/solve it do we fall
+    # back to asking the AI - which acts as a full chatbot, but is instructed
+    # (via TEXT_SOLVE_SYSTEM_PROMPT) to only ever answer math questions and
+    # to decline anything else. Same provider preference as /api/solve-image:
+    # Gemini first, Anthropic as fallback.
+    if result.get("error") or result.get("decline"):
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        try:
+            if gemini_key:
+                return jsonify(_solve_text_with_gemini(gemini_key, text))
+            if anthropic_key:
+                return jsonify(_solve_text_with_anthropic(anthropic_key, text))
+        except Exception:
+            pass  # AI fallback failed - fall through to the regex result below
+
     return jsonify(result)
 
 
