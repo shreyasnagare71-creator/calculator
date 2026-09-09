@@ -25,7 +25,7 @@ import re
 import requests
 from flask import Flask, jsonify, render_template, request
 
-from math_engine import MathEvalError, evaluate, solve_math
+from math_engine import MathEvalError, evaluate
 
 app = Flask(__name__)
 
@@ -212,39 +212,18 @@ def api_solve():
     data = request.get_json(force=True, silent=True) or {}
     text = data.get("text", "")
 
-    # Fast path: the hand-written regex/parser engine handles the common,
-    # well-formed patterns instantly and with no API cost.
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not gemini_key and not anthropic_key:
+        return jsonify({"error": "No AI provider configured on the server (set GEMINI_API_KEY or ANTHROPIC_API_KEY)."})
+
     try:
-        result = solve_math(text)
-    except Exception:
-        result = {"error": True}
-
-    # Only when the fast engine can't confidently parse/solve it do we fall
-    # back to asking the AI - which acts as a full chatbot, but is instructed
-    # (via TEXT_SOLVE_SYSTEM_PROMPT) to only ever answer math questions and
-    # to decline anything else. Same provider preference as /api/solve-image:
-    # Gemini first, Anthropic as fallback.
-    if result.get("error") or result.get("decline"):
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not gemini_key and not anthropic_key:
-            # No provider configured at all - this is the #1 reason the
-            # generic regex message keeps showing up for "tricky" inputs.
-            result = {
-                "error": "No AI provider configured on the server (set GEMINI_API_KEY "
-                          "or ANTHROPIC_API_KEY) - only exact-pattern math is being solved."
-            }
-        else:
-            try:
-                if gemini_key:
-                    return jsonify(_solve_text_with_gemini(gemini_key, text))
-                return jsonify(_solve_text_with_anthropic(anthropic_key, text))
-            except Exception as exc:
-                app.logger.warning("AI text-solve fallback failed: %s", exc)
-                if app.debug:
-                    result = {"error": f"AI fallback failed: {exc}"}
-
-    return jsonify(result)
+        if gemini_key:
+            return jsonify(_solve_text_with_gemini(gemini_key, text))
+        return jsonify(_solve_text_with_anthropic(anthropic_key, text))
+    except Exception as exc:
+        app.logger.warning("AI text-solve failed: %s", exc)
+        return jsonify({"error": f"AI solve failed: {exc}"} if app.debug else {"error": True})
 
 
 @app.route("/api/calc", methods=["POST"])
