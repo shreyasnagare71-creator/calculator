@@ -21,6 +21,7 @@ import base64
 import json
 import os
 import re
+import time
 
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -138,6 +139,25 @@ def _solve_image_with_anthropic(api_key, image_b64, media_type, user_text):
     return _clean_json_block(text_block)
 
 
+def _post_with_retry(url, **kwargs):
+    """POST with a couple retries on transient errors (Gemini 5xx/timeout are
+    common under load and succeed a moment later - not worth surfacing to
+    the user as a hard failure on the first try)."""
+    last_exc = None
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, **kwargs)
+            if resp.status_code >= 500:
+                last_exc = requests.exceptions.HTTPError(f"{resp.status_code} Server Error", response=resp)
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            return resp
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            time.sleep(0.6 * (attempt + 1))
+    raise last_exc
+
+
 def _solve_text_with_gemini(api_key, user_text):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     payload = {
@@ -157,7 +177,7 @@ def _solve_text_with_gemini(api_key, user_text):
             )
         ],
     }
-    resp = requests.post(url, params={"key": api_key}, json=payload, timeout=45)
+    resp = _post_with_retry(url, params={"key": api_key}, json=payload, timeout=45)
     resp.raise_for_status()
     data = resp.json()
     block_reason = (data.get("promptFeedback") or {}).get("blockReason")
@@ -219,7 +239,12 @@ def api_solve():
 
     try:
         if gemini_key:
-            return jsonify(_solve_text_with_gemini(gemini_key, text))
+            try:
+                return jsonify(_solve_text_with_gemini(gemini_key, text))
+            except Exception as exc:
+                if not anthropic_key:
+                    raise
+                app.logger.warning("Gemini failed, falling back to Anthropic: %s", exc)
         return jsonify(_solve_text_with_anthropic(anthropic_key, text))
     except Exception as exc:
         app.logger.warning("AI text-solve failed: %s", exc)
