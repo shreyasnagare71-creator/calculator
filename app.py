@@ -31,7 +31,7 @@ app = Flask(__name__)
 
 # Model used for image-based solving with each provider. Override via env
 # vars if Google/Anthropic release newer model names.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 IMAGE_INSTRUCTION_TEMPLATE = """You are a careful math tutor. Look at the attached image, which contains a math problem (it may be handwritten or printed). Read the problem, then solve it.{student_note}
