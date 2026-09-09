@@ -106,6 +106,7 @@
     font-family:'Inter',sans-serif;
   }
   .home-cta:hover{ transform:translateY(-2px); box-shadow:0 10px 30px -8px rgba(139,92,246,0.55); }
+  .home-cta:active{ transform:translateY(0) scale(0.97); }
 
   .feature-grid{
     display:grid; grid-template-columns:repeat(4, 1fr); gap:14px;
@@ -204,10 +205,11 @@
     display:flex; align-items:center; gap:10px;
     padding:8px 10px; border-radius:8px; cursor:pointer;
     font-size:13px; color:var(--text-dim); white-space:nowrap; overflow:hidden;
-    transition:background .12s ease, color .12s ease;
+    transition:background .12s ease, color .12s ease, transform .08s ease;
     border:none; background:none; width:100%; text-align:left; font-family:'Inter',sans-serif;
   }
   .chat-history-item:hover, .nav-item:hover{ background:var(--glass-strong); color:var(--text); }
+  .chat-history-item:active, .nav-item:active{ transform:scale(0.98); }
   .nav-item.active{ background:var(--glass-strong); color:var(--text); box-shadow:inset 2px 0 0 var(--cyan); }
   .nav-item .icon, .chat-history-item .icon{ width:16px; flex:none; text-align:center; }
 
@@ -245,12 +247,13 @@
   }
   .topbar-left{ display:flex; align-items:center; gap:10px; }
   .icon-btn{
-    width:34px; height:34px; border-radius:9px; border:1px solid var(--border);
+    width:38px; height:38px; border-radius:9px; border:1px solid var(--border);
     background:var(--glass-strong); color:var(--text); cursor:pointer;
     display:flex; align-items:center; justify-content:center; font-size:15px;
-    transition:border-color .15s ease;
+    transition:border-color .15s ease, background .15s ease, transform .08s ease;
   }
-  .icon-btn:hover{ border-color:var(--cyan); }
+  .icon-btn:hover{ border-color:var(--cyan); background:var(--glass); }
+  .icon-btn:active{ transform:scale(0.92); }
   .icon-btn.back-btn{ font-size:16px; }
   .view-title{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:16px; }
   .status{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--green); font-weight:600; }
@@ -283,6 +286,7 @@
     font-size:13px; transition:border-color .15s ease, transform .1s ease;
   }
   .prompt-card:hover{ border-color:var(--cyan); transform:translateY(-2px); }
+  .prompt-card:active{ transform:translateY(0) scale(0.98); }
   .prompt-card .pc-icon{ font-size:16px; margin-bottom:5px; display:block; }
 
   .msg{ max-width:80%; animation:msgIn .25s ease both; display:flex; gap:10px; }
@@ -345,14 +349,17 @@
   #chatInput::placeholder{ color:var(--text-dim); }
   .composer-actions{ display:flex; gap:6px; align-items:center; }
   .round-btn{
-    width:36px; height:36px; border-radius:10px; border:none; cursor:pointer;
+    width:38px; height:38px; border-radius:10px; border:none; cursor:pointer;
     display:flex; align-items:center; justify-content:center; font-size:15px;
-    background:var(--glass); color:var(--text-dim); transition:background .15s ease, color .15s ease;
+    background:var(--glass); color:var(--text-dim);
+    transition:background .15s ease, color .15s ease, transform .08s ease;
   }
   .round-btn:hover{ background:var(--glass-strong); color:var(--text); }
+  .round-btn:active{ transform:scale(0.92); }
   .send-btn{ background:linear-gradient(135deg, var(--cyan), var(--violet)); color:#0B1330; }
   .send-btn:hover{ box-shadow:0 0 16px rgba(139,92,246,0.5); }
-  .send-btn:disabled{ opacity:0.45; cursor:not-allowed; box-shadow:none; }
+  .send-btn:active{ transform:scale(0.92); }
+  .send-btn:disabled{ opacity:0.45; cursor:not-allowed; box-shadow:none; transform:none; }
   .composer-hint{ text-align:center; font-size:11px; color:var(--text-dim); margin-top:8px; }
   .img-preview{
     display:none; align-items:center; gap:8px; background:var(--glass-strong);
@@ -505,6 +512,38 @@
     .app.collapsed{ grid-template-columns:1fr; }
     .prompt-grid{ grid-template-columns:1fr; }
     .msg{ max-width:92%; }
+
+    .topbar{ padding:12px 14px; }
+    .view-title{ font-size:14.5px; }
+    .status span:last-child{ display:none; } /* keep just the dot, save width */
+    .icon-btn{ width:40px; height:40px; } /* real touch target */
+
+    .chat-window{ padding:16px 14px; gap:14px; }
+    .suggestions h2{ font-size:19px; }
+    .suggestions{ padding:10px; }
+
+    .composer{ padding:10px 12px 14px; }
+    .composer-box{ padding:6px 6px 6px 12px; }
+    .round-btn{ width:40px; height:40px; }
+    #chatInput{ font-size:16px; } /* prevents iOS auto-zoom on focus */
+    .composer-hint{ font-size:10px; }
+
+    .calc-view, .practice-view{ padding:16px 12px; }
+    .calc-grid{ gap:6px; }
+    .calc-btn{ padding:12px 0; }
+
+    .graph-view{ padding:14px 12px; }
+    .graph-controls{ gap:6px; }
+    .graph-controls button{ padding:9px 11px; font-size:12.5px; }
+
+    .saved-view{ padding:18px 14px; }
+  }
+
+  @media (max-width:420px){
+    .home-page{ padding:28px 16px; }
+    .msg{ max-width:96%; }
+    .bubble{ padding:10px 12px; font-size:13.5px; }
+    .practice-actions{ flex-direction:column; }
   }
 
   .toast{
@@ -674,7 +713,7 @@
             <button class="round-btn send-btn" id="sendBtn" title="Send" disabled>&#10148;</button>
           </div>
         </div>
-        <p class="composer-hint" id="composerHint">Text problems are solved by the Python backend. Attach, or paste (Ctrl/Cmd+V) a screenshot of a question, and the server sends it to Claude to read and solve.</p>
+        <p class="composer-hint" id="composerHint">Ask any math question, or attach/paste (Ctrl/Cmd+V) a photo of a problem — an AI tutor solves it step by step.</p>
       </div>
     </section>
 
