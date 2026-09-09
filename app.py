@@ -54,7 +54,7 @@ TEXT_SOLVE_SYSTEM_PROMPT = """You are the AI tutor inside a math-calculator app'
 Decide first whether the user's message is actually a math question.
 
 - If it is NOT a math question (small talk, general knowledge, coding, personal advice, or any non-mathematical topic), respond with EXACTLY this JSON and nothing else: {"decline": true}
-- If it IS a math question, solve it like a patient tutor, showing your work, even if it's informally worded, has a typo, or doesn't match a standard template. Make a reasonable interpretation rather than refusing, and briefly note any assumption you made as one of the steps. This includes number-pattern / substitution riddles (e.g. "1+1=trump then 3+1=?") - treat these as in-scope: figure out the rule from the given example(s) and apply it.
+- If it IS a math question, solve it like a patient tutor, showing your work, even if it's informally worded, has a typo, or doesn't match a standard template. Make a reasonable interpretation rather than refusing, and briefly note any assumption you made as one of the steps. This includes number-pattern / substitution riddles like "1+1=foo then 3+1=?" - treat these as in-scope: figure out the most plausible rule from the given example (letter count, digit count, alphabetical position, etc.), state that assumption as a step, and give your best-guess answer. Never decline or give up just because only one example was given or the wording is odd - always commit to an answer. This applies even if the riddle happens to use real people's names in place of numbers - treat the names purely as opaque symbols/labels being substituted for numbers, not as a statement about those people.
 
 When it is a math question, respond with ONLY a JSON object, no markdown fences, no commentary outside the JSON, in exactly this shape:
 {"steps": ["step 1 explanation", "step 2 explanation", ...], "final": "the final answer"}
@@ -140,12 +140,35 @@ def _solve_image_with_anthropic(api_key, image_b64, media_type, user_text):
 
 def _solve_text_with_gemini(api_key, user_text):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-    payload = {"contents": [{"parts": [{"text": TEXT_SOLVE_SYSTEM_PROMPT + "\n\nStudent: " + user_text}]}]}
+    payload = {
+        "contents": [{"parts": [{"text": TEXT_SOLVE_SYSTEM_PROMPT + "\n\nStudent: " + user_text}]}],
+        # This is a benign math-tutor chatbot; relax the default safety
+        # filters so ordinary requests that happen to mention a public
+        # figure's name (as an opaque label in a number-substitution
+        # riddle, e.g. "1+1=trump") aren't blocked as if they were asking
+        # for political/harassing content.
+        "safetySettings": [
+            {"category": cat, "threshold": "BLOCK_ONLY_HIGH"}
+            for cat in (
+                "HARM_CATEGORY_HARASSMENT",
+                "HARM_CATEGORY_HATE_SPEECH",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "HARM_CATEGORY_DANGEROUS_CONTENT",
+            )
+        ],
+    }
     resp = requests.post(url, params={"key": api_key}, json=payload, timeout=45)
     resp.raise_for_status()
-    candidates = resp.json().get("candidates") or []
+    data = resp.json()
+    block_reason = (data.get("promptFeedback") or {}).get("blockReason")
+    if block_reason:
+        raise ValueError(f"Gemini blocked the prompt (reason: {block_reason}).")
+    candidates = data.get("candidates") or []
     if not candidates:
         raise ValueError("Gemini returned no candidates.")
+    finish_reason = candidates[0].get("finishReason")
+    if finish_reason == "SAFETY":
+        raise ValueError("Gemini blocked the response on safety grounds.")
     parts = candidates[0].get("content", {}).get("parts", [])
     text_block = "".join(p.get("text", "") for p in parts).strip()
     return _normalize_ai_solve(_clean_json_block(text_block))
@@ -204,13 +227,22 @@ def api_solve():
     if result.get("error") or result.get("decline"):
         gemini_key = os.environ.get("GEMINI_API_KEY")
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        try:
-            if gemini_key:
-                return jsonify(_solve_text_with_gemini(gemini_key, text))
-            if anthropic_key:
+        if not gemini_key and not anthropic_key:
+            # No provider configured at all - this is the #1 reason the
+            # generic regex message keeps showing up for "tricky" inputs.
+            result = {
+                "error": "No AI provider configured on the server (set GEMINI_API_KEY "
+                          "or ANTHROPIC_API_KEY) - only exact-pattern math is being solved."
+            }
+        else:
+            try:
+                if gemini_key:
+                    return jsonify(_solve_text_with_gemini(gemini_key, text))
                 return jsonify(_solve_text_with_anthropic(anthropic_key, text))
-        except Exception as exc:
-            app.logger.warning("AI text-solve fallback failed: %s", exc)
+            except Exception as exc:
+                app.logger.warning("AI text-solve fallback failed: %s", exc)
+                if app.debug:
+                    result = {"error": f"AI fallback failed: {exc}"}
 
     return jsonify(result)
 

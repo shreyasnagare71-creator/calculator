@@ -1662,7 +1662,8 @@
       return;
     }
     if(res.error){
-      addBotMessage({ html:'I had trouble solving that one. Could you rephrase it, e.g. "Solve x^2 - 5x + 6 = 0" or "What is 25 x 40?"', cls:'error', actions:false });
+      const detail = (typeof res.error === 'string') ? res.error : null;
+      addBotMessage({ html: detail ? escapeHtml(detail) : 'I had trouble solving that one. Could you rephrase it, e.g. "Solve x^2 - 5x + 6 = 0" or "What is 25 x 40?"', cls:'error', actions:false });
       return;
     }
     let html = '';
